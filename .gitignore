@@ -1,0 +1,23 @@
+/DevBeh/Results/
+/DevBeh/target/
+
+# Cargo.lock
+# (Ignored for libraries, but committed for binaries)
+# Uncomment the next line if you're building a library:
+/DevBeh/Cargo.lock
+
+# Backup files
+*.rs.bk
+
+# IDE / Editor junk
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# JetBrains IDE (CLion / IntelliJ)
+.idea/
+
+# Rust Analyzer / Language server
+rust-project.json
