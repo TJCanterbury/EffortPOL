@@ -66,6 +66,7 @@ fn write_csv_header(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "c_v", // surival cost of making observations in winter
         "c_u", // survival cost of parental effort in winter
         "mu", // mutation rate of loci
+        "mut_size",
         "sigma0", // Locus determining prior alpha
         "sigma_cue",
         "div_rate",
@@ -106,6 +107,7 @@ fn write_csv_header2(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "c_v", // surival cost of making observations in winter
         "c_u", // survival cost of parental effort in winter
         "mu", // mutation rate of loci
+        "mut_size",
         "sigma0", // Locus determining prior alpha
         "sigma_cue",
         "div_rate",
@@ -142,11 +144,14 @@ fn run_r_sim_script(path: String) -> io::Result<()> {
     Ok(()) // Return Ok if all went well
 }
 
-fn init_pop(n: u32, agent: Agent) -> Vec<Agent> {
+fn init_pop(n: usize, agent: Agent, sigma0:f64) -> Vec<Agent> {
     // returns vector with new agents
+    let normal = Normal::new(0.0, sigma0).unwrap();
     let mut pop = Vec::new();
-    for _i in 0..n {
+    for i in 0..n {
         pop.push(agent.clone());
+        pop[i].q = normal.sample(&mut thread_rng());
+        
     }
     return pop;
 }
@@ -164,6 +169,12 @@ fn try_print(vec:Vec<f64>, file:&str) -> Result<(), Box<dyn Error>> {
     wtr.write_record(strings)?;
     wtr.flush()?;
     Ok(())
+}
+
+fn dice() -> f64 {
+    let mut rng = rand::thread_rng();
+    let dice: f64 = rng.gen(); 
+    return dice
 }
 
 // Structs
@@ -199,7 +210,7 @@ struct Environment {
     mu:f64, // mutation rate of loci
     sigma0: f64, // Prior sigma
     sigma_cue:f64, // variation of social cue
-    varsigma:f64, // the maximum sample size an individual is able to gather from cues
+    varsigma:i64, // the maximum sample size an individual is able to gather from cues
     theta:f64, // slope of mortality against q-value
     mut_size:f64, // standard deviation of mutations
     div_rate:f64, // divorce rate
@@ -324,19 +335,16 @@ impl Agent {
         return (self.c+ (self.m * (self.q))).min(1.0).max(0.0);
     }
 
-    fn social_cue(&mut self, partner_q:f64, sigma_cue:f64, n:i64) {
+    fn social_cue(&mut self, partner_q:f64, sigma_cue:f64) {
         let normal = Normal::new(partner_q, sigma_cue).unwrap();
-        let mut phen:f64;
+        let phen:f64;
         let b = 1. / (sigma_cue * sigma_cue);
 
         // println!("prior pi: {}, sig: {}, q: {}, sig_cue: {}", self.pi, self.sigma, partner_q, sigma_cue);
-        for _i in 0..n {
-            let a = 1. / (self.sigma * self.sigma);
-            phen = normal.sample(&mut thread_rng());
-            self.updating(a, b, phen);
+        let a = 1. / (self.sigma * self.sigma);
+        phen = normal.sample(&mut thread_rng());
+        self.updating(a, b, phen);
             // println!("n: {}, post pi: {}, sig: {}, phen: {}, q: {}, H(q): {}\n",i, self.pi, self.sigma, phen, partner_q, self.uncertainty());
-
-        }
     }
 
     fn updating(&mut self, a:f64, b:f64, x:f64) {
@@ -360,7 +368,7 @@ impl Agent {
         return r
     }
 
-    fn surivorship(&self, b_s:f64, c_q:f64, c_v:f64, c_u:f64, theta:f64, varsigma:f64) -> f64 {
+    fn surivorship(&self, b_s:f64, c_q:f64, c_v:f64, c_u:f64, theta:f64) -> f64 {
         let s: f64 =  b_s*(1. - (1. / (1.+(-self.q * theta).exp())) * c_q)*(1. - self.pol_v() *c_v)*(1. - (1. / (1.+(-self.u).exp())) * c_u);
         // println!("s: {}, pace of life: {}, psi: {}, u..: {}",s, (1. - (1. / (1.+(-self.q * theta).exp())) * c_q), (1. - c_v).powf(self.pol_v() * varsigma), (1. - (1. / (1.+(-self.u).exp())) * c_u));
         // println!("s: {}, pace of life: {}, psi: {}, u..: {}",s, (1. - (1. / (1.+(-self.q * theta).exp())) * c_q),(1. - self.pol_v() *c_v), (1. - (1. / (1.+(-self.u).exp())) * c_u));
@@ -369,29 +377,22 @@ impl Agent {
 }
 
 impl Environment { 
-    fn development(&mut self) {
-        let mut phen:f64;
-        for i in 0..self.pop.len() {
-            let normal = Normal::new(0.0, self.sigma0).unwrap();
-            phen = normal.sample(&mut thread_rng());
-            self.pop[i].q = phen;
-        }
-    }
     
     fn observations(&mut self) {
         let mut v_f: f64;
-        let mut n_f: i64;
         let mut q_m: f64;
         for i in 0..self.pop.len(){
             let female = i;
             let male = self.pop[i].partner.unwrap();
             v_f = self.pop[female].pol_v();
 
-            n_f = (v_f * self.varsigma) as i64;
-
             q_m = self.pop[male].q;
             
-            self.pop[female].social_cue(q_m, self.sigma_cue, n_f);
+            for _j in 0..self.varsigma {
+                if dice() < v_f {
+                    self.pop[female].social_cue(q_m, self.sigma_cue);
+                }
+            }
         } 
     }
 
@@ -437,6 +438,9 @@ impl Environment {
                 self.pop[female].u = u2;
                 // println!("u1: {}, u2: {}", u1, u2);
 
+                // u1 = (u1.clamp(-1., 1.)+1.)/2.;
+                // u2 = (u2.clamp(-1., 1.)+1.)/2.;
+
                 ben = self.b_f + u1.min(0.) + u2.min(0.);
                 q1 = self.pop[male].q;
                 q2 = self.pop[female].q;
@@ -477,7 +481,7 @@ impl Environment {
         // winter deaths given phenotype environment match of each individual
         let mut rng = rand::thread_rng();
         for i in 0..self.pop.len() {
-            if rng.gen::<f64>() > self.pop[i].surivorship(self.b_s, self.c_q, self.c_v, self.c_u, self.theta, self.varsigma) {
+            if rng.gen::<f64>() > self.pop[i].surivorship(self.b_s, self.c_q, self.c_v, self.c_u, self.theta) {
                 self.kills(i);
             }
         }
@@ -535,6 +539,7 @@ impl Environment {
         let mut selected_male:usize;
         let mut selected_female:usize;
         let blend:f64 = 0.5;
+        let normal = Normal::new(0.0, self.sigma0).unwrap();
         // for each i in dead, replace strategy with that of a living individual (single or paired) biased by their fitness from either environment
 
         // weighted agent indices by fitness (dead or alive)
@@ -572,6 +577,7 @@ impl Environment {
             self.pop[self.dead[i]].lambda = blend*self.pop[selected_male].lambda + (1.-blend)*self.pop[selected_female].lambda;
             self.pop[self.dead[i]].gamma = blend*self.pop[selected_male].gamma + (1.-blend)*self.pop[selected_female].gamma;
             self.pop[self.dead[i]].fitness = 0.;
+            self.pop[self.dead[i]].q = normal.sample(&mut thread_rng());
 
             // apply mutations to policies
             self.pop[self.dead[i]].mutate(self.mu, self.mut_size);   
@@ -617,10 +623,11 @@ impl Environment {
         data.push(self.c_v); // surival cost of making observations in winter
         data.push(self.c_u); // survival cost of parental effort in winter
         data.push(self.mu); // mutation rate of loci
+        data.push(self.mut_size);
         data.push(self.sigma0); // Locus determining prior alpha
         data.push(self.sigma_cue);
         data.push(self.div_rate);
-        data.push(self.varsigma); // the maximum sample size an individual is able to gather from cues
+        data.push(self.varsigma as f64); // the maximum sample size an individual is able to gather from cues
         data.push(self.h);
         data.push(self.mean_fitness as f64);
         data.push(mean_loc_m);
@@ -653,7 +660,6 @@ fn run(
     /////////////////////////////////////////// Run simulation \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
     for i in 1..=generations {
         // env.evolve_priors(); // updates priors for beliefs about partner phenotype (prior for climate is const)
-        env.development(); // Individuals develop a random pace-of-life phenotype q
         env.pairing_pool(); // available individuals pair up randomly
         env.observations(); // Individuals decide observation effort
         env.negotiations(); // individuals negotiate their parental effort
@@ -680,9 +686,10 @@ fn main() -> std::io::Result<()>  {
         let project_id = &args[1];
 
 /////////////////////////////////////////// Initialise baseline parameters \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-        let generations: i32 = 20000; // number of generations the sim lasts
+        let generations: i32 = 50000; // number of generations the sim lasts
         let sigma0:f64 = 10.0;
-        let iterations:i32 = 200;
+        let iterations:i32 = 100;
+        let pop_size = 1000;
 
         let agent:Agent = Agent {
             sigma: sigma0,
@@ -701,23 +708,23 @@ fn main() -> std::io::Result<()>  {
         };
         
         let env = Environment {
-            pop: init_pop(1000, agent),
-            singles: (0..1000 as usize).collect(),
+            pop: init_pop(pop_size, agent,sigma0),
+            singles: (0..pop_size as usize).collect(),
             dead: Vec::new(),
             mean_fitness:0.,
             tol: 0.001,
-            mu:0.1, // mutation rate of loci
+            mu:0.2, // mutation rate of loci
             mut_size:0.1,
 
             b_f:1.0, // Baseline fecundity (offspring independence)
             b_s:0.99, // Baseline survival rate of adults (5 years lifespan)
             b_p:0.4, // Brood predation risk (assuming twice the mortality of adults)
             c_q:0.25, // survival cost of fast POL in winter 
-            c_v:0.25, // surival cost of making observations in winter
+            c_v:0.1, // surival cost of making observations in winter
             c_u:0.25, // survival cost of parental effort in winter (highest energy expenditure)
             sigma0, // Locus determining prior alpha
             sigma_cue:4.0, // sd of the cue
-            varsigma:10.0, // the maximum sample size an individual is able to gather from cues
+            varsigma:10, // the maximum sample size an individual is able to gather from cues
             h:5., // slow-fast slope of nest-defence/size/aggression (behavioural phenotypes more extreme therefore h>theta)
             theta: 2.0, // slow-fast sigmoid slope of mortality risk against q-value (physiological
             div_rate:1.0, // divorce rate
@@ -741,7 +748,7 @@ fn main() -> std::io::Result<()>  {
         let mut env = env.clone();
         let mut agent = agent.clone();
         agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(1000, agent);
+        env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
         env.b_s = x;
         
@@ -777,7 +784,7 @@ fn main() -> std::io::Result<()>  {
         let mut env = env.clone();
         let mut agent = agent.clone();
         agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(1000, agent);
+        env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
         env.c_v = x;
         
@@ -813,7 +820,7 @@ fn main() -> std::io::Result<()>  {
         let mut env = env.clone();
         let mut agent = agent.clone();
         agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(1000, agent);
+        env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.001..10.0); // uniform sample from parameter space
         env.sigma_cue = x;
         
@@ -849,7 +856,7 @@ fn main() -> std::io::Result<()>  {
         let mut env = env.clone();
         let mut agent = agent.clone();
         agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(1000, agent);
+        env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0..5.0); // uniform sample from parameter space
         env.b_f = x;
         
@@ -885,7 +892,7 @@ fn main() -> std::io::Result<()>  {
         let mut env = env.clone();
         let mut agent = agent.clone();
         agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(1000, agent);
+        env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
         env.b_p = x;
         
@@ -921,7 +928,7 @@ fn main() -> std::io::Result<()>  {
         let mut env = env.clone();
         let mut agent = agent.clone();
         agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(1000, agent);
+        env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.01..10.0); // uniform sample from parameter space
         env.sigma0 = x;
         
@@ -957,7 +964,7 @@ fn main() -> std::io::Result<()>  {
         let mut env = env.clone();
         let mut agent = agent.clone();
         agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(1000, agent);
+        env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
         env.div_rate = x;
         
