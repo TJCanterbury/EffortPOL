@@ -177,6 +177,10 @@ fn dice() -> f64 {
     return dice
 }
 
+fn sigmoid(q:f64, m:f64) -> f64 {
+    return 1. / (1. + (-q * m).exp())
+}
+
 // Structs
 #[derive(Clone, Copy, Debug)]
 struct Agent {
@@ -361,17 +365,15 @@ impl Agent {
         let r:f64
             = self.u_base
             + self.rho
-            + self.nu*self.q
-            + self.gamma*(1.-h)*(self.pi) 
-            // + self.gamma*(1.-h)*(self.pi-self.q) 
+            + self.nu*sigmoid(self.q,1.)
+            // + self.gamma*(1.-h)*(sigmoid(self.pi,1.)-sigmoid(self.q,1.)) 
+            + self.gamma*(1.-h)*(sigmoid(self.pi,1.)) 
             - self.lambda*(u2 - self.u_base);
         return r
     }
 
     fn surivorship(&self, b_s:f64, c_q:f64, c_v:f64, c_u:f64, theta:f64) -> f64 {
-        let s: f64 =  b_s*(1. - (1. / (1.+(-self.q * theta).exp())) * c_q)*(1. - self.pol_v() *c_v)*(1. - (1. / (1.+(-self.u).exp())) * c_u);
-        // println!("s: {}, pace of life: {}, psi: {}, u..: {}",s, (1. - (1. / (1.+(-self.q * theta).exp())) * c_q), (1. - c_v).powf(self.pol_v() * varsigma), (1. - (1. / (1.+(-self.u).exp())) * c_u));
-        // println!("s: {}, pace of life: {}, psi: {}, u..: {}",s, (1. - (1. / (1.+(-self.q * theta).exp())) * c_q),(1. - self.pol_v() *c_v), (1. - (1. / (1.+(-self.u).exp())) * c_u));
+        let s: f64 =  b_s*(1. - (1. / (1.+(-self.q * theta).exp())) * c_q)*(1. - self.pol_v() *c_v)*(1. - self.u * c_u); 
         return s
     }
 }
@@ -410,6 +412,7 @@ impl Environment {
         let mut q1:f64;
         let mut q2:f64;
         let mut pred:f64;
+        let x:f64 = 1.0;
 
         for i in 0..self.pop.len(){
             female = i;
@@ -434,26 +437,32 @@ impl Environment {
                     // println!("gen: {}, dif: {}, old: {}, u1: {}, u2: {}", gen, dif, old, u1, u2)
                 }
                 
-                self.pop[male].u = u1;
-                self.pop[female].u = u2;
                 // println!("u1: {}, u2: {}", u1, u2);
 
-                // u1 = (u1.clamp(-1., 1.)+1.)/2.;
-                // u2 = (u2.clamp(-1., 1.)+1.)/2.;
+                // u1 = (u1.clamp(-x, x)+x)/(x*2.);
+                // u2 = (u2.clamp(-x, x)+x)/(x*2.);
+                
+                // u1 = u1.clamp(0., 10.);
+                // u2 = u2.clamp(0., 10.);
+                // println!("u1: {}, u2: {}", u1, u2);
+                u1 = sigmoid(u1, 1.);
+                u2 = sigmoid(u2, 1.);
 
-                ben = self.b_f + u1.min(0.) + u2.min(0.);
+                ben = self.b_f + 1.*(u1.max(0.0) + u2.max(0.0));
+                self.pop[male].u = u1;
+                self.pop[female].u = u2;
                 q1 = self.pop[male].q;
                 q2 = self.pop[female].q;
                 pred = self.predation(u1, u2, q1, q2);
                 
-                self.pop[male].fitness = (0. as f64).max(ben * (1.-pred) / 2.);
-                self.pop[female].fitness = (0. as f64).max(ben * (1.-pred) / 2.);
+                self.pop[male].fitness = (ben * (1.-pred) / 2.).max(0.0);
+                self.pop[female].fitness = (ben * (1.-pred) / 2.).max(0.0);
             }
         }
     }
 
     fn predation(&mut self, u1:f64,u2:f64,q1:f64,q2:f64) -> f64 {
-        return self.b_p * (0.5) * ((1.-(1. / (1.+(-u1).exp())))*(1./(1.+(-self.h*q1).exp())) + (1.-(1. / (1.+(-u2).exp())))*(1./(1.+(-self.h*q2).exp())))
+        return self.b_p * (1.- (1./(1.+(-self.h*(1.-u1)*q1).exp())) * (1./(1.+(-self.h*(1.-u2)*q2).exp()))).min(1.0)
     }
 
     fn kills(&mut self, i: usize) {
@@ -688,7 +697,7 @@ fn main() -> std::io::Result<()>  {
 /////////////////////////////////////////// Initialise baseline parameters \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
         let generations: i32 = 50000; // number of generations the sim lasts
         let sigma0:f64 = 10.0;
-        let iterations:i32 = 100;
+        let iterations:i32 = 200;
         let pop_size = 1000;
 
         let agent:Agent = Agent {
@@ -714,11 +723,11 @@ fn main() -> std::io::Result<()>  {
             mean_fitness:0.,
             tol: 0.001,
             mu:0.2, // mutation rate of loci
-            mut_size:0.1,
+            mut_size:0.2,
 
             b_f:1.0, // Baseline fecundity (offspring independence)
             b_s:0.99, // Baseline survival rate of adults (5 years lifespan)
-            b_p:0.4, // Brood predation risk (assuming twice the mortality of adults)
+            b_p:1.0, // Brood predation risk (assuming twice the mortality of adults)
             c_q:0.25, // survival cost of fast POL in winter 
             c_v:0.1, // surival cost of making observations in winter
             c_u:0.25, // survival cost of parental effort in winter (highest energy expenditure)
@@ -734,6 +743,42 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec("source('src/b_s.r')")?;
     let r_mutex = Mutex::new(r);
+
+////////////////////////////////////////////////////// hawkishness of fast individuals
+        // Construct the full path
+        let path = format!("./Results/{}/h/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.0..10.0); // uniform sample from parameter space
+        env.h = x;
+        
+        println!("Simulation started: h: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: h: {}, trial: {}", x, g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_h_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_h_plot('{}')", path)).unwrap();
 
 ////////////////////////////////////////////////////// Adult mortality rate (b_s) simulations
         // Construct the full path

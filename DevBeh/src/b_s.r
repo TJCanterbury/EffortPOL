@@ -42,6 +42,42 @@ run_b_f_plot <- function(path) {
   dev.off()
 }
 
+run_h_plot <- function(path) {
+
+  # Read CSV
+  readfile <- read.csv(paste0(path, "summaries.csv"))
+
+  # Prepare datasets
+  df_long1 <- readfile %>%
+    select(h, u_base, rho, nu,
+           gamma, lambda, c, m) %>%
+    gather(`Loci`, `Trait value`, -h)
+
+  # Determine shared x-axis limits
+  x_limits <- range(readfile$h)
+
+  # First plot
+  p1 <- ggplot(df_long1, aes(x = h, y = `Trait value`,
+                             color = `Loci`,
+                             group = `Loci`,
+                             fill = `Loci`)) +
+    geom_point(alpha = 0.3, size = 1) +
+    geom_smooth(method = "loess", se = TRUE, alpha = 0.3) +
+    theme_classic(base_size = 12) +
+    theme(
+      panel.grid.major = element_line(colour = "grey80", size = 0.3),
+      panel.grid.minor = element_line(colour = "grey90", size = 0.2)
+    ) +
+    xlab("Hawkishness of fast pace-of-life individuals (h)") +
+    coord_cartesian(xlim = x_limits, ylim = c(-1, 1)) +
+    scale_color_viridis_d(option = "turbo")  # different color set
+    
+  
+  pdf(paste0(path, "../h.pdf"), width = 8, height = 6)
+  print(p1)
+  dev.off()
+}
+
 run_sigma_plot <- function(path) {
 
   # Read CSV
@@ -51,19 +87,15 @@ run_sigma_plot <- function(path) {
   df_long1 <- readfile %>%
     select(sigma0, u_base, rho, nu,
            gamma, lambda, c, m) %>%
-    gather(`Negotiation Loci`, Value, -sigma0)
-
-  # df_long2 <- readfile %>%
-  #   select(sigma0, m,x) %>%
-  #   gather(`Observation Loci`, Value, -sigma0)
+    gather(`Loci`, `Trait value`, -sigma0)
 
   # Determine shared x-axis limits
   x_limits <- range(readfile$sigma0)
 
   # First plot
-  p1 <- ggplot(df_long1, aes(x = sigma0, y = Value,
-                             color = `Negotiation Loci`,
-                             group = `Negotiation Loci`, 
+  p1 <- ggplot(df_long1, aes(x = sigma0, y = `Trait value`,
+                             color = `Loci`,
+                             group = `Loci`,
                              fill = `Loci`)) +
     geom_point(alpha = 0.3, size = 1) +
     geom_smooth(method = "loess", se = TRUE, alpha = 0.3) +
@@ -75,20 +107,8 @@ run_sigma_plot <- function(path) {
     xlab("Standard deviation of pace-of-life phenotype (sigma)") +
     coord_cartesian(xlim = x_limits, ylim = c(-1, 1)) +
     scale_color_viridis_d(option = "turbo")  # different color set
-
-  # Second plot
-  # p2 <- ggplot(df_long2, aes(x = sigma0, y = Value,
-  #                            color = `Observation Loci`,
-  #                            group = `Observation Loci`)) +
-  #   geom_point(alpha = 0.3, size = 1) +
-  #   geom_smooth(se=FALSE, method = "gam", formula = y ~ s(x, bs = "cs")) +
-  #   theme_classic(base_size = 12) +
-  #   xlab("Standard deviation of pace-of-life phenotype (sigma)") +
-  #   coord_cartesian(xlim = x_limits) +
-  #   scale_color_brewer(palette = "Set2") + 
-  #   theme(legend.title = element_blank())
-
-  # Open PDF
+    
+  
   pdf(paste0(path, "../sigma0.pdf"), width = 8, height = 6)
   print(p1)
   dev.off()
