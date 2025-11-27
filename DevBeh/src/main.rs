@@ -361,12 +361,12 @@ impl Agent {
         return hx / (0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * sigma0*sigma0).log2())
     }
 
-    fn r(&self, u2:f64, h:f64) -> f64 {
+    fn r(&self, u2:f64, p:f64) -> f64 {
         let r:f64
             = self.rho
-            + self.nu*sigmoid(-self.q)
-            + self.gamma*(sigmoid(-self.q) - sigmoid(-self.pi)) 
-            - self.lambda*(sigmoid(-u2) - self.u_base);
+            + self.nu*sigmoid(-self.q*p)
+            + self.gamma*(sigmoid(-self.q*p) - sigmoid(-self.pi*p)) 
+            - self.lambda*((1.-(-u2).exp()) - self.u_base);
         return r
     }
 
@@ -377,23 +377,8 @@ impl Agent {
 }
 
 impl Environment { 
-    
-    fn observations(&mut self) {
-        let mut v_f: f64;
-        let mut q_m: f64;
-        for i in 0..self.pop.len(){
-            let female = i;
-            let male = self.pop[i].partner.unwrap();
-            v_f = self.pop[female].pol_v();
-
-            q_m = self.pop[male].q;
-            
-            for _j in 0..self.varsigma {
-                if dice() < v_f {
-                    self.pop[female].social_cue(q_m, self.sigma_cue);
-                }
-            }
-        } 
+    fn predation(&mut self, u1:f64,u2:f64,q1:f64,q2:f64) -> f64 {
+        return self.b_p * sigmoid(-q1*self.h*(1.-u1)-q2*self.h*(1.-u2)) 
     }
 
     fn negotiations(&mut self) {  
@@ -411,6 +396,7 @@ impl Environment {
         let mut q2:f64;
         let mut pred:f64;
         let x:f64 = 1.0;
+        let p: f64 = (self.h+self.theta)/2.; // pace-of-life parameter mean
 
         for i in 0..self.pop.len(){
             female = i;
@@ -428,25 +414,13 @@ impl Environment {
                 for _j in 0..100 {
                     // Observation preference
                     // gen+=1.;
-                    u1 = self.pop[male].r(u2,h1);
-                    u2 = self.pop[female].r(u1,h2);
-                    // dif = (u1 + u2)-old;
-                    // old = u1 + u2;
-                    // println!("gen: {}, dif: {}, old: {}, u1: {}, u2: {}", gen, dif, old, u1, u2)
+                    u1 = self.pop[male].r(u2,p);
+                    u2 = self.pop[female].r(u1,p);
                 }
-                
-                // println!("u1: {}, u2: {}", u1, u2);
+                u1 = 1.-(-u2).exp();
+                u2 = 1.-(-u2).exp();
 
-                // u1 = (u1.clamp(-x, x)+x)/(x*2.);
-                // u2 = (u2.clamp(-x, x)+x)/(x*2.);
-                
-                // u1 = u1.clamp(0., 10.);
-                // u2 = u2.clamp(0., 10.);
-                // println!("u1: {}, u2: {}", u1, u2);
-                u1 = sigmoid(-u1);
-                u2 = sigmoid(-u2);
-
-                ben = self.b_f + 1.*(u1.max(0.0) + u2.max(0.0));
+                ben = self.b_f + 1.*u1*u2;
                 self.pop[male].u = u1;
                 self.pop[female].u = u2;
                 q1 = self.pop[male].q;
@@ -458,9 +432,23 @@ impl Environment {
             }
         }
     }
+    
+    fn observations(&mut self) {
+        let mut v_f: f64;
+        let mut q_m: f64;
+        for i in 0..self.pop.len(){
+            let female = i;
+            let male = self.pop[i].partner.unwrap();
+            v_f = self.pop[female].pol_v();
 
-    fn predation(&mut self, u1:f64,u2:f64,q1:f64,q2:f64) -> f64 {
-        return self.b_p * sigmoid(-q1*self.h*(1.-u1)-q2*self.h*(1.-u2)) 
+            q_m = self.pop[male].q;
+            
+            for _j in 0..self.varsigma {
+                if dice() < v_f {
+                    self.pop[female].social_cue(q_m, self.sigma_cue);
+                }
+            }
+        } 
     }
 
     fn kills(&mut self, i: usize) {
