@@ -298,8 +298,8 @@ impl Agent {
             // pace-of-life influence effort baseline
             let n = nm::new(self.nu, mut_size as f64).unwrap(); // generates normal distribution 
             let loc_mut = n.sample(&mut rng);
-            if loc_mut < 0. {
-                self.nu = 0.;
+            if loc_mut < -1. {
+                self.nu = -1.;
             } else if loc_mut > 1.{
                 self.nu = 1.;
             } else {
@@ -314,8 +314,8 @@ impl Agent {
             // scales the perceived informativeness of partner gathering outcomes.
             let n = nm::new(self.lambda, mut_size as f64).unwrap(); // generates normal distribution 
             let loc_mut = n.sample(&mut rng);
-            if loc_mut < 0. {
-                self.lambda = 0.;
+            if loc_mut < -1. {
+                self.lambda = -1.;
             } else if loc_mut > 1.{
                 self.lambda = 1.;
             } else {
@@ -329,8 +329,8 @@ impl Agent {
             // scales the perceived informativeness of partner gathering outcomes.
             let n = nm::new(self.gamma, mut_size as f64).unwrap(); // generates normal distribution 
             let loc_mut = n.sample(&mut rng);
-            if loc_mut < 0. {
-                self.gamma = 0.;
+            if loc_mut < -1. {
+                self.gamma = -1.;
             } else if loc_mut > 1.{
                 self.gamma = 1.;
             } else {
