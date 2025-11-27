@@ -366,7 +366,7 @@ impl Agent {
             = self.rho
             + self.nu*sigmoid(-self.q*p)
             + self.gamma*(sigmoid(-self.q*p) - sigmoid(-self.pi*p)) 
-            - self.lambda*((1.-(-u2).exp()) - self.u_base);
+            - self.lambda*((1.-(-(u2).max(0.)).exp()) - self.u_base);
         return r
     }
 
@@ -417,8 +417,8 @@ impl Environment {
                     u1 = self.pop[male].r(u2,p);
                     u2 = self.pop[female].r(u1,p);
                 }
-                u1 = 1.-(-u2).exp();
-                u2 = 1.-(-u2).exp();
+                u1 = 1.-(-(u1).max(0.)).exp();
+                u2 = 1.-(-(u2).max(0.)).exp();
 
                 ben = self.b_f + 1.*u1*u2;
                 self.pop[male].u = u1;
