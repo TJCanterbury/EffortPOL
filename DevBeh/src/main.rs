@@ -361,11 +361,11 @@ impl Agent {
         return hx / (0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * sigma0*sigma0).log2())
     }
 
-    fn r(&self, u2:f64, p:f64) -> f64 {
+    fn r(&self, u2:f64, p:f64, h:f64) -> f64 {
         let r:f64
             = self.rho
             + self.nu*sigmoid(-self.q*p)
-            + self.gamma*(sigmoid(-self.q*p) - sigmoid(-self.pi*p)) 
+            + self.gamma*(1.-h)*(sigmoid(-self.q*p) - sigmoid(-self.pi*p)) 
             - self.lambda*((1.-(-(u2).max(0.)).exp()) - self.u_base);
         return r
     }
@@ -414,8 +414,8 @@ impl Environment {
                 for _j in 0..100 {
                     // Observation preference
                     // gen+=1.;
-                    u1 = self.pop[male].r(u2,p);
-                    u2 = self.pop[female].r(u1,p);
+                    u1 = self.pop[male].r(u2,p,h1);
+                    u2 = self.pop[female].r(u1,p,h2);
                 }
                 u1 = 1.-(-(u1).max(0.)).exp();
                 u2 = 1.-(-(u2).max(0.)).exp();
