@@ -363,11 +363,10 @@ impl Agent {
 
     fn r(&self, u2:f64, h:f64) -> f64 {
         let r:f64
-            = self.u_base
-            + self.rho
+            = self.rho
             + self.nu*sigmoid(-self.q)
-            + self.gamma*(sigmoid(-self.q)) 
-            - self.lambda*(u2 - self.u_base);
+            + self.gamma*(sigmoid(-self.q) - sigmoid(-self.pi)) 
+            - self.lambda*(sigmoid(-u2) - self.u_base);
         return r
     }
 
