@@ -263,8 +263,8 @@ impl Agent {
             // parental effort baseline
             let n = nm::new(self.u_base, mut_size as f64).unwrap(); // generates normal distribution 
             let loc_mut = n.sample(&mut rng);
-            if loc_mut < -1. {
-                self.u_base = -1.;
+            if loc_mut < 0. {
+                self.u_base = 0.;
             } else if loc_mut > 1.{
                 self.u_base = 1.;
             } else {
