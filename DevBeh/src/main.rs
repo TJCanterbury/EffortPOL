@@ -352,7 +352,7 @@ impl Agent {
             = self.u_base
             + self.rho
             + self.nu*(self.q - 0.5)
-            + self.gamma*4.*h*(self.q - self.alpha/(self.alpha+self.beta)) 
+            + self.gamma*(1.-4.*h)*(self.q - self.alpha/(self.alpha+self.beta)) 
             - self.lambda*(u2 - self.u_base).max(0.0);
         return r
     }
@@ -434,6 +434,11 @@ impl Environment {
                 self.pop[female].u = u2;
                 q1 = self.pop[male].q;
                 q2 = self.pop[female].q;
+                pred = self.predation(u1, u2, q1, q2);
+                
+                self.pop[male].fitness = (ben * (1.-pred) / 2.).max(0.0);
+                self.pop[female].fitness = (ben * (1.-pred) / 2.).max(0.0);
+
                 if q1 > 0.5  {
                     self.mean_fast += u1;
                     fast += 1.;
@@ -448,10 +453,6 @@ impl Environment {
                     self.mean_slow += u2;
                     slow += 1.;
                 }
-                pred = self.predation(u1, u2, q1, q2);
-                
-                self.pop[male].fitness = (ben * (1.-pred) / 2.).max(0.0);
-                self.pop[female].fitness = (ben * (1.-pred) / 2.).max(0.0);
             }
         }
         self.mean_fast = self.mean_fast / fast;
@@ -694,7 +695,7 @@ fn main() -> std::io::Result<()>  {
         let project_id = &args[1];
 
 /////////////////////////////////////////// Initialise baseline parameters \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-        let generations: i32 = 50000; // number of generations the sim lasts
+        let generations: i32 = 20000; // number of generations the sim lasts
         let sigma0:f64 = 10.0;
         let iterations:i32 = 200;
         let pop_size = 1000;
