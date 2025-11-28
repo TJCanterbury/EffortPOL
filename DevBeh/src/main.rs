@@ -366,8 +366,8 @@ impl Agent {
             = self.u_base
             + self.rho
             + self.nu*sigmoid(self.q)
-            // + self.gamma*(1.-h)*(sigmoid(self.pi,1.)-sigmoid(self.q,1.)) 
-            + self.gamma*(1.-h)*(sigmoid(self.pi)) 
+            + self.gamma*(1.-h)*(sigmoid(self.pi)-sigmoid(self.q)) 
+            // + self.gamma*(1.-h)*(sigmoid(self.pi)) 
             - self.lambda*(u2 - self.u_base);
         return r
     }
