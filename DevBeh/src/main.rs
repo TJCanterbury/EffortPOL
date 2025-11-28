@@ -72,6 +72,7 @@ fn write_csv_header(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "div_rate",
         "varsigma", // the maximum sample size an individual is able to gather from cues
         "h", // hawkishness slope
+        "theta",
         "mean_fitness",
         "m",
         "c",
@@ -113,6 +114,7 @@ fn write_csv_header2(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "div_rate",
         "varsigma", // the maximum sample size an individual is able to gather from cues
         "h", // hawkishness slope
+        "theta",
         "mean_fitness",
         "m",
         "c",
@@ -336,7 +338,7 @@ impl Agent {
 
     fn pol_v(&self) -> f64 {
         // return self.c2*(1. - self.c) + self.c / (1. + (self.m * (self.q) ).exp());
-        return sigmoid(self.c+ (-self.m * (self.q)));
+        return self.c*sigmoid(self.m * (self.q));
     }
 
     fn social_cue(&mut self, partner_q:f64, sigma_cue:f64) {
@@ -378,8 +380,7 @@ impl Agent {
     }
 }
 
-impl Environment { 
-    
+impl Environment {
     fn observations(&mut self) {
         let mut v_f: f64;
         let mut q_m: f64;
@@ -638,6 +639,7 @@ impl Environment {
         data.push(self.div_rate);
         data.push(self.varsigma as f64); // the maximum sample size an individual is able to gather from cues
         data.push(self.h);
+        data.push(self.theta);
         data.push(self.mean_fitness as f64);
         data.push(mean_loc_m);
         data.push(mean_loc_c);
@@ -887,6 +889,42 @@ fn main() -> std::io::Result<()>  {
     });
     let mut r = RSession::new()?;
     r.exec(&format!("run_h_plot('{}')", path)).unwrap();
+
+//////////////////////////////////////////////////////theta
+        // Construct the full path
+        let path = format!("./Results/{}/theta/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.0..10.0); // uniform sample from parameter space
+        env.theta = x;
+        
+        println!("Simulation started: theta: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: theta: {}, trial: {}", x, g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_theta_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_theta_plot('{}')", path)).unwrap();
 
 ////////////////////////////////////////////////////// Cue detectability (cue_sigma) sims
     // Construct the full path
