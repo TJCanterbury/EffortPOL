@@ -178,7 +178,7 @@ fn dice() -> f64 {
 }
 
 fn sigmoid(q:f64) -> f64 {
-    return 1. / (1. + (q).exp())
+    return 1. / (1. + (-q).exp())
 }
 
 // Structs
@@ -263,8 +263,8 @@ impl Agent {
             // parental effort baseline
             let n = nm::new(self.u_base, mut_size as f64).unwrap(); // generates normal distribution 
             let loc_mut = n.sample(&mut rng);
-            if loc_mut < 0. {
-                self.u_base = 0.;
+            if loc_mut < -1. {
+                self.u_base = -1.;
             } else if loc_mut > 1.{
                 self.u_base = 1.;
             } else {
@@ -336,7 +336,7 @@ impl Agent {
 
     fn pol_v(&self) -> f64 {
         // return self.c2*(1. - self.c) + self.c / (1. + (self.m * (self.q) ).exp());
-        return (self.c+ (self.m * (self.q))).clamp(0., 1.);
+        return sigmoid(self.c+ (-self.m * (self.q)));
     }
 
     fn social_cue(&mut self, partner_q:f64, sigma_cue:f64) {
@@ -364,14 +364,16 @@ impl Agent {
     fn r(&self, u2:f64, h:f64) -> f64 {
         let r:f64
             = self.rho
-            + self.nu*sigmoid(-self.q)
-            + self.gamma*(1.-h)*(sigmoid(-self.q) - sigmoid(-self.pi)) 
-            - self.lambda*(sigmoid(-u2) - self.u_base);
+            + self.nu*sigmoid(self.q)
+            + self.gamma*(1.-h)*(sigmoid(self.pi)-sigmoid(self.q)) 
+            // + self.gamma*(1.-h)*(sigmoid(self.pi)) 
+            - self.lambda*(sigmoid(u2) - self.u_base);
         return r
     }
 
     fn surivorship(&self, b_s:f64, c_q:f64, c_v:f64, c_u:f64, theta:f64) -> f64 {
-        let s: f64 =  b_s*(1. - sigmoid(-self.q * theta) * c_q)*(1. - self.pol_v() *c_v)*(1. - self.u * c_u); 
+        let s: f64 =  b_s*(1. - sigmoid(self.q * theta) * c_q)*(1. - self.pol_v() *c_v)*(1. - sigmoid(self.u) * c_u);
+        // let s: f64 =  b_s*(1. - (1. / (1.+(-self.q * theta).exp())) * c_q)*(1. - self.pol_v() *c_v)*(1. - self.u * c_u); 
         return s
     }
 }
@@ -443,8 +445,8 @@ impl Environment {
                 // u1 = u1.clamp(0., 10.);
                 // u2 = u2.clamp(0., 10.);
                 // println!("u1: {}, u2: {}", u1, u2);
-                u1 = sigmoid(-u1);
-                u2 = sigmoid(-u2);
+                u1 = sigmoid(u1);
+                u2 = sigmoid(u2);
 
                 ben = self.b_f + 1.*(u1.max(0.0) + u2.max(0.0));
                 self.pop[male].u = u1;
@@ -460,7 +462,7 @@ impl Environment {
     }
 
     fn predation(&mut self, u1:f64,u2:f64,q1:f64,q2:f64) -> f64 {
-        return self.b_p * sigmoid(-q1*self.h*(1.-u1)-q2*self.h*(1.-u2)) 
+        return self.b_p * (1.- (1./(1.+(-self.h*(1.-u1)*q1).exp())) * (1./(1.+(-self.h*(1.-u2)*q2).exp()))).min(1.0)
     }
 
     fn kills(&mut self, i: usize) {
@@ -742,9 +744,9 @@ fn main() -> std::io::Result<()>  {
     r.exec("source('src/b_s.r')")?;
     let r_mutex = Mutex::new(r);
 
-////////////////////////////////////////////////////// Adult mortality rate (b_s) simulations
-        // Construct the full path
-        let path = format!("./Results/{}/b_s/", project_id);
+////////////////////////////////////////////////////// Brood predation risk (b_p) sims
+    // Construct the full path
+        let path = format!("./Results/{}/b_p/", project_id);
         let path_construct = Path::new(&path);
         // Ensure parent directory exists
         let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
@@ -757,9 +759,9 @@ fn main() -> std::io::Result<()>  {
         agent.mutate(1.0, 1.0); // randomize resident loci
         env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
-        env.b_s = x;
+        env.b_p = x;
         
-        println!("Simulation started: mort: {}, trial: {}", x, g);
+        println!("Simulation started: predation risk: {}, trial: {}", x, g);
         run(
             generations, 
             &path, 
@@ -767,16 +769,16 @@ fn main() -> std::io::Result<()>  {
             Some(&g),
             env
         );
-        println!("Simulation done: mort: {}, trial: {}", x, g);
+        println!("Simulation done: predation risk: {}, trial: {}", x, g);
 
         // ensure only one thread runs r at a time (plotting):
         if g % 10 == 0 {
             let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_b_s_plot('{}')", path)).unwrap();
+            r_guard.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
         }
     });
     let mut r = RSession::new()?;
-    r.exec(&format!("run_b_s_plot('{}')", path)).unwrap();
+    r.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
 
 ////////////////////////////////////////////////////// Cue cost sims
         // Construct the full path
@@ -813,6 +815,78 @@ fn main() -> std::io::Result<()>  {
     });
     let mut r = RSession::new()?;
     r.exec(&format!("run_cuecost_plot('{}')", path)).unwrap();
+
+////////////////////////////////////////////////////// Adult mortality rate (b_s) simulations
+        // Construct the full path
+        let path = format!("./Results/{}/b_s/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
+        env.b_s = x;
+        
+        println!("Simulation started: mort: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: mort: {}, trial: {}", x, g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_b_s_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_b_s_plot('{}')", path)).unwrap();
+
+////////////////////////////////////////////////////// hawkishness of fast individuals
+        // Construct the full path
+        let path = format!("./Results/{}/h/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.0..10.0); // uniform sample from parameter space
+        env.h = x;
+        
+        println!("Simulation started: h: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: h: {}, trial: {}", x, g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_h_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_h_plot('{}')", path)).unwrap();
 
 ////////////////////////////////////////////////////// Cue detectability (cue_sigma) sims
     // Construct the full path
@@ -886,42 +960,6 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec(&format!("run_b_f_plot('{}')", path)).unwrap();
 
-////////////////////////////////////////////////////// Brood predation risk (b_p) sims
-    // Construct the full path
-        let path = format!("./Results/{}/b_p/", project_id);
-        let path_construct = Path::new(&path);
-        // Ensure parent directory exists
-        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-        let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
-        env.b_p = x;
-        
-        println!("Simulation started: predation risk: {}, trial: {}", x, g);
-        run(
-            generations, 
-            &path, 
-            Some(&(x.to_string())), 
-            Some(&g),
-            env
-        );
-        println!("Simulation done: predation risk: {}, trial: {}", x, g);
-
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
-
 ////////////////////////////////////////////////////// Pace-of-life variance (sigma) sims
         // Construct the full path
         let path = format!("./Results/{}/sigma/", project_id);
@@ -957,42 +995,6 @@ fn main() -> std::io::Result<()>  {
     });
     let mut r = RSession::new()?;
     r.exec(&format!("run_sigma_plot('{}')", path)).unwrap();
-
-////////////////////////////////////////////////////// hawkishness of fast individuals
-        // Construct the full path
-        let path = format!("./Results/{}/h/", project_id);
-        let path_construct = Path::new(&path);
-        // Ensure parent directory exists
-        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-        let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.0..10.0); // uniform sample from parameter space
-        env.h = x;
-        
-        println!("Simulation started: h: {}, trial: {}", x, g);
-        run(
-            generations, 
-            &path, 
-            Some(&(x.to_string())), 
-            Some(&g),
-            env
-        );
-        println!("Simulation done: h: {}, trial: {}", x, g);
-
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_h_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_h_plot('{}')", path)).unwrap();
 
 ////////////////////////////////////////////////////// Divorce rate: 
     // Construct the full path
