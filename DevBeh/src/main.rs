@@ -80,7 +80,11 @@ fn write_csv_header(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "rho",
         "nu",
         "gamma",
-        "lambda"
+        "lambda",
+        "mean_faster_effort",
+        "mean_slower_effort",
+        "mean_fast_h",
+        "mean_slow_h"
     ])?;
 
     wtr.flush()?;
@@ -122,7 +126,11 @@ fn write_csv_header2(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "rho",
         "nu",
         "gamma",
-        "lambda"
+        "lambda",
+        "mean_faster_effort",
+        "mean_slower_effort",
+        "mean_fast_h",
+        "mean_slow_h"
     ])?;
 
     wtr.flush()?;
@@ -221,6 +229,10 @@ struct Environment {
     mut_size:f64, // standard deviation of mutations
     div_rate:f64, // divorce rate
     h:f64, // hawkishness slope
+    mean_faster_effort:f64,
+    mean_slower_effort:f64,
+    mean_fast_h:f64,
+    mean_slow_h:f64
 }
 
 // Implementations
@@ -414,6 +426,10 @@ impl Environment {
         let mut q2:f64;
         let mut pred:f64;
         let x:f64 = 1.0;
+        self.mean_faster_effort = 0.;
+        self.mean_slower_effort = 0.;
+        self.mean_fast_h = 0.;
+        self.mean_slow_h = 0.;
 
         for i in 0..self.pop.len(){
             female = i;
@@ -455,11 +471,30 @@ impl Environment {
                 q1 = self.pop[male].q;
                 q2 = self.pop[female].q;
                 pred = self.predation(u1, u2, q1, q2);
+
+                // Record data
+                if q1 > q2 {
+                    self.mean_faster_effort += u1;
+                    self.mean_slower_effort += u2;
+                    self.mean_fast_h += h1;
+                    self.mean_slow_h += h2;
+                } else {
+                    self.mean_faster_effort += u2;
+                    self.mean_slower_effort += u1;
+                    self.mean_fast_h += h2;
+                    self.mean_slow_h += h1;
+                }
                 
                 self.pop[male].fitness = (ben * (1.-pred) / 2.).max(0.0);
                 self.pop[female].fitness = (ben * (1.-pred) / 2.).max(0.0);
             }
         }
+
+        
+        self.mean_faster_effort /= self.pop.len() as f64 /2.;
+        self.mean_slower_effort /= self.pop.len() as f64 /2.;
+        self.mean_fast_h /= self.pop.len() as f64 /2.;
+        self.mean_slow_h /= self.pop.len() as f64 /2.;
     }
 
     fn predation(&mut self, u1:f64,u2:f64,q1:f64,q2:f64) -> f64 {
@@ -648,6 +683,10 @@ impl Environment {
         data.push(mean_loc_nu);
         data.push(mean_loc_gamma);
         data.push(mean_loc_lambda);
+        data.push(self.mean_faster_effort);
+        data.push(self.mean_slower_effort);
+        data.push(self.mean_fast_h);
+        data.push(self.mean_slow_h);
         return data
     }
 
@@ -739,6 +778,10 @@ fn main() -> std::io::Result<()>  {
             h:5., // slow-fast slope of nest-defence/size/aggression (behavioural phenotypes more extreme therefore h>theta)
             theta: 2.0, // slow-fast sigmoid slope of mortality risk against q-value (physiological
             div_rate:1.0, // divorce rate
+            mean_faster_effort:0.,
+            mean_slower_effort:0.,
+            mean_fast_h:0.,
+            mean_slow_h:0.,
         };
 
 ////////////////////////////////////////////////////// start r session
@@ -962,42 +1005,6 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
 
-////////////////////////////////////////////////////// Offspring independence (b_f) simulations
-    // Construct the full path
-    let path = format!("./Results/{}/b_f/", project_id);
-    let path_construct = Path::new(&path);
-    // Ensure parent directory exists
-    let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-    let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.0..5.0); // uniform sample from parameter space
-        env.b_f = x;
-        
-        println!("Simulation started: baseline fecundity: {}, trial: {}", x, g);
-        run(
-            generations, 
-            &path, 
-            Some(&(x.to_string())), 
-            Some(&g),
-            env
-        );
-        println!("Simulation done: baseline fecundity: {}, trial: {}", x, g);
-
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_b_f_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_b_f_plot('{}')", path)).unwrap();
-
 ////////////////////////////////////////////////////// Pace-of-life variance (sigma) sims
         // Construct the full path
         let path = format!("./Results/{}/sigma/", project_id);
@@ -1034,35 +1041,35 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec(&format!("run_sigma_plot('{}')", path)).unwrap();
 
-////////////////////////////////////////////////////// Divorce rate: 
-    // Construct the full path
-    let path = format!("./Results/{}/divorce/", project_id);
-    let path_construct = Path::new(&path);
-    // Ensure parent directory exists
-    let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-    let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
-        env.div_rate = x;
+// ////////////////////////////////////////////////////// Divorce rate: 
+//     // Construct the full path
+//     let path = format!("./Results/{}/divorce/", project_id);
+//     let path_construct = Path::new(&path);
+//     // Ensure parent directory exists
+//     let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+//     let _ = write_csv_header(&path);
+//     (0..iterations).into_par_iter().for_each(|g|  {
+//         // Initialise stochastic variables
+//         let mut rng = rand::thread_rng();
+//         let mut env = env.clone();
+//         let mut agent = agent.clone();
+//         agent.mutate(1.0, 1.0); // randomize resident loci
+//         env.pop = init_pop(pop_size, agent, sigma0);
+//         let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
+//         env.div_rate = x;
         
-        println!("Simulation started: divorce: {}, trial: {}", x, g);
-        run(generations, &path, Some(&(x.to_string())), Some(&g),env);
-        println!("Simulation done: divorce: {}, trial: {}", x, g);
+//         println!("Simulation started: divorce: {}, trial: {}", x, g);
+//         run(generations, &path, Some(&(x.to_string())), Some(&g),env);
+//         println!("Simulation done: divorce: {}, trial: {}", x, g);
 
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_divorce_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_divorce_plot('{}')", path)).unwrap();
+//         // ensure only one thread runs r at a time (plotting):
+//         if g % 10 == 0 {
+//             let mut r_guard = r_mutex.lock().unwrap(); 
+//             r_guard.exec(&format!("run_divorce_plot('{}')", path)).unwrap();
+//         }
+//     });
+//     let mut r = RSession::new()?;
+//     r.exec(&format!("run_divorce_plot('{}')", path)).unwrap();
 
     
 Ok(())

@@ -16,6 +16,13 @@ loci_labels <- list(
   m      = bquote("POLS observation bias "(m))
 )
 
+trait_labels <- list(
+  mean_faster_effort = bquote("Mean effort of the faster partner"),
+  mean_slower_effort    = bquote("Mean effort of the slower partner"),
+  mean_fast_h     = bquote("Mean uncertainty of the faster partner"),
+  mean_slow_h  = bquote("Mean uncertainty of the slower partner")
+)
+
 run_trait_plot <- function(
   path,
   x_var,
@@ -31,6 +38,14 @@ run_trait_plot <- function(
 
   df_long <- readfile %>%
     dplyr::select(!!x_sym, u_base, rho, nu, gamma, lambda, c, m) %>%
+    tidyr::gather(Loci, Value, -!!x_sym)
+
+  df_long2 <- readfile %>%
+    dplyr::select(!!x_sym,
+      mean_faster_effort,
+      mean_slower_effort,
+      mean_fast_h,
+      mean_slow_h) %>%
     tidyr::gather(Loci, Value, -!!x_sym)
 
   x_limits <- range(readfile[[x_var]])
@@ -55,8 +70,28 @@ run_trait_plot <- function(
     scale_fill_discrete(name = "Loci", labels = loci_labels) +
     coord_cartesian(xlim = x_limits, ylim = y_limits)
 
+  p2 <- ggplot(df_long2, aes(
+      x = !!x_sym,
+      y = Value,
+      color = Loci,
+      group = Loci,
+      fill  = Loci
+    )
+  ) +
+    geom_point(alpha = 0.3, size = 1) +
+    geom_smooth(method = "loess", se = TRUE, alpha = 0.3) +
+    theme_classic(base_size = 12) +
+    xlab(x_label) +
+    theme(
+      panel.grid.major = element_line(colour = "grey80", linewidth = 0.3),
+      panel.grid.minor = element_line(colour = "grey90", linewidth = 0.2)
+    ) +
+    scale_color_discrete(name = "Loci", labels = trait_labels) +
+    scale_fill_discrete(name = "Loci", labels = trait_labels) +
+    coord_cartesian(xlim = x_limits, ylim = c(0,1))
+
   pdf(paste0(path, "../", out_name, ".pdf"), width = 8, height = 6)
-  print(p)
+  print(p/p2)
   dev.off()
 
   file.copy(
