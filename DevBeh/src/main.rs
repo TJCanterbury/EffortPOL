@@ -84,7 +84,8 @@ fn write_csv_header(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "mean_faster_effort",
         "mean_slower_effort",
         "mean_fast_h",
-        "mean_slow_h"
+        "mean_slow_h",
+        "loc_sigma"
     ])?;
 
     wtr.flush()?;
@@ -130,7 +131,8 @@ fn write_csv_header2(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "mean_faster_effort",
         "mean_slower_effort",
         "mean_fast_h",
-        "mean_slow_h"
+        "mean_slow_h",
+        "loc_sigma"
     ])?;
 
     wtr.flush()?;
@@ -363,6 +365,24 @@ impl Agent {
                 self.gamma = loc_mut;
             }
         }
+
+        dice = rng.gen(); //sigma, POLS regulation loci
+        if dice <= mu { //mutates
+            // loc3: f64, between 0. and 1. (sigma)
+            // scales the perceived informativeness of partner gathering outcomes.
+            let n = nm::new(self.sigma, mut_size as f64).unwrap(); // generates normal distribution 
+            let loc_mut = n.sample(&mut rng);
+            if loc_mut < 0.05 {
+                self.sigma = 0.05;
+            } else {
+                self.sigma = loc_mut;
+            }
+        }
+    }
+
+    fn pols_det(&mut self) {
+        let normal = Normal::new(0.0, self.sigma).unwrap();
+        self.q = normal.sample(&mut thread_rng())
     }
 
     fn pol_v(&self) -> f64 {
@@ -705,8 +725,9 @@ impl Environment {
             self.pop[self.dead[i]].nu = blend*self.pop[selected_male].nu + (1.-blend)*self.pop[selected_female].nu ;
             self.pop[self.dead[i]].lambda = blend*self.pop[selected_male].lambda + (1.-blend)*self.pop[selected_female].lambda;
             self.pop[self.dead[i]].gamma = blend*self.pop[selected_male].gamma + (1.-blend)*self.pop[selected_female].gamma;
+            self.pop[self.dead[i]].sigma = blend*self.pop[selected_male].sigma + (1.-blend)*self.pop[selected_female].sigma;
             self.pop[self.dead[i]].fitness = 0.;
-            self.pop[self.dead[i]].q = normal.sample(&mut thread_rng());
+            self.pop[self.dead[i]].pols_det();
 
             // apply mutations to policies
             self.pop[self.dead[i]].mutate(self.mu, self.mut_size);   
@@ -724,6 +745,7 @@ impl Environment {
         let mut mean_loc_nu = 0.;
         let mut mean_loc_gamma = 0.;
         let mut mean_loc_lambda = 0.;
+        let mut mean_loc_sigma = 0.;
         // println!("Generation: {}, Mean_fitness: {:.4}, prior_wet: {:.4}, prior_general: {:.4}, prior_dry: {:.4}, prop_obs: {:.4}", 
             // i, env.mean_fitness, env.prop_obs);
         for a in &self.pop {
@@ -734,6 +756,7 @@ impl Environment {
             mean_loc_nu += a.nu;
             mean_loc_lambda += a.lambda;
             mean_loc_gamma += a.gamma;
+            mean_loc_sigma += a.sigma;
         }
         mean_loc_m = mean_loc_m/pop_len;
         mean_loc_c = mean_loc_c/pop_len;
@@ -741,7 +764,7 @@ impl Environment {
         mean_loc_rho = mean_loc_rho/pop_len;
         mean_loc_nu = mean_loc_nu/pop_len;
         mean_loc_lambda = mean_loc_lambda/pop_len;
-        mean_loc_gamma = mean_loc_gamma/pop_len;
+        mean_loc_sigma = mean_loc_sigma/pop_len;
             
         data.push(i);
         data.push(pop_len);
@@ -771,6 +794,7 @@ impl Environment {
         data.push(self.mean_slower_effort);
         data.push(self.mean_fast_h);
         data.push(self.mean_slow_h);
+        data.push(mean_loc_sigma);
         return data
     }
 
@@ -894,7 +918,43 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec("source('src/b_s.r')")?;
     let r_mutex = Mutex::new(r);
-    
+
+////////////////////////////////////////////////////// Cue detectability (cue_sigma) sims
+    // Construct the full path
+    let path = format!("./Results/{}/sigma_cue/", project_id);
+    let path_construct = Path::new(&path);
+     // Ensure parent directory exists
+    let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+    let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.001..10.0); // uniform sample from parameter space
+        env.sigma_cue = x;
+        
+        println!("Simulation started: sigmacue: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: sigmacue: {}, trial: {}", x, g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
+
 ////////////////////////////////////////////////////// Cost of Fast POLS c_q
     // Construct the full path
         let path = format!("./Results/{}/c_q/", project_id);
@@ -966,41 +1026,7 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec(&format!("run_sigma_plot('{}')", path)).unwrap();
     
-////////////////////////////////////////////////////// Cue detectability (cue_sigma) sims
-    // Construct the full path
-    let path = format!("./Results/{}/sigma_cue/", project_id);
-    let path_construct = Path::new(&path);
-     // Ensure parent directory exists
-    let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-    let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.001..10.0); // uniform sample from parameter space
-        env.sigma_cue = x;
-        
-        println!("Simulation started: sigmacue: {}, trial: {}", x, g);
-        run(
-            generations, 
-            &path, 
-            Some(&(x.to_string())), 
-            Some(&g),
-            env
-        );
-        println!("Simulation done: sigmacue: {}, trial: {}", x, g);
 
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
 
 
 //////////////////////////////////////////////////////theta

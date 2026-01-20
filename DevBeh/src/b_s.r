@@ -15,7 +15,8 @@ loci_labels <- list(
   gamma  = bquote("Social information effort bias "(gamma)),
   lambda = bquote("Responsiveness to partner effort "(lambda)),
   c      = bquote("Baseline observation rate "(c)),
-  m      = bquote("POLS observation bias "(m))
+  m      = bquote("POLS observation bias "(m)),
+  loc_sigma = bquote("POLS developmental noise "(sigma))
 )
 
 trait_labels <- list(
@@ -100,7 +101,7 @@ run_trait_plot <- function(
   x_sym <- rlang::sym(x_var)
 
   df_long <- readfile %>%
-    dplyr::select(!!x_sym, u_base, rho, nu, gamma, lambda, c, m) %>%
+    dplyr::select(!!x_sym, u_base, rho, nu, gamma, lambda, c, m, loc_sigma) %>%
     tidyr::gather(Loci, Value, -!!x_sym)
 
   df_long2 <- readfile %>%
