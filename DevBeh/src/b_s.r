@@ -15,9 +15,7 @@ loci_labels <- list(
   gamma  = bquote("Social information effort bias "(gamma)),
   lambda = bquote("Responsiveness to partner effort "(lambda)),
   c      = bquote("Baseline observation rate "(c)),
-  m      = bquote("POLS observation bias "(m)),
-  x      = bquote("POLS mean "(x)),
-  var      = bquote("POLS variance ")
+  m      = bquote("POLS observation bias "(m))
 )
 
 trait_labels <- list(
@@ -164,21 +162,21 @@ run_trait_plot <- function(
   x_sym <- rlang::sym(x_var)
 
   df_long <- readfile %>%
-    select(!!x_sym, mean_f_s_w, f_w, s_w) %>%
-    gather(Loci, Value, -!!x_sym)
+    dplyr::select(!!x_sym, mean_f_s_w, f_w, s_w) %>%
+    tidyr::gather(Loci, Value, -!!x_sym)
 
   df_long2 <- readfile %>%
-    select(!!x_sym,
+    dplyr::select(!!x_sym,
       mean_faster_effort,
       mean_slower_effort,
       mean_fast_h,
       mean_slow_h,
       effort_dif) %>%
-    gather(Loci, Value, -!!x_sym)
+    tidyr::gather(Loci, Value, -!!x_sym)
 
   df_long3 <- readfile %>%
-    select(!!x_sym, nu, gamma, lambda, m, x/10, var/10) %>%
-    gather(Loci, Value, -!!x_sym)
+    dplyr::select(!!x_sym, nu, gamma, lambda, m) %>%
+    tidyr::gather(Loci, Value, -!!x_sym)
 
   x_limits <- range(readfile[[x_var]])
 
@@ -243,7 +241,7 @@ run_trait_plot <- function(
     ) +
     scale_color_discrete(name = "Key loci", labels = loci_labels) +
     scale_fill_discrete(name = "Key loci", labels = loci_labels) +
-    coord_cartesian(xlim = x_limits)
+    coord_cartesian(xlim = x_limits, ylim = c(-1,1))
   pdf(paste0(path, "../", out_name, ".pdf"), width = 8, height = 6)
   print((loc/phen/f))
   dev.off()
