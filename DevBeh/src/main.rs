@@ -85,7 +85,13 @@ fn write_csv_header(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "mean_slower_effort",
         "mean_fast_h",
         "mean_slow_h",
-        "loc_sigma"
+        "mean_f_s_w",
+        "mean_f_s_d",
+        "f_w",
+        "s_w",
+        "effort_dif",
+        "x",
+        "var"
     ])?;
 
     wtr.flush()?;
@@ -132,7 +138,13 @@ fn write_csv_header2(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "mean_slower_effort",
         "mean_fast_h",
         "mean_slow_h",
-        "loc_sigma"
+        "mean_f_s_w",
+        "mean_f_s_d",
+        "f_w",
+        "s_w",
+        "effort_dif",
+        "x",
+        "var"
     ])?;
 
     wtr.flush()?;
@@ -226,6 +238,8 @@ struct Agent {
     nu: f64, // locus - influence of self POL information on negotiation
     lambda:f64, // locus - influence of prior partner bids on negotiation
     gamma:f64, // locus - influence of partner POL information on negotiation
+    x:f64, // Locus - mean POLS
+    var:f64, // locus variance POLS
 }
 #[derive(Clone, Debug)]
 struct Environment {
@@ -233,7 +247,6 @@ struct Environment {
     singles: Vec<usize>,
     dead: Vec<usize>,
     mean_fitness:f32,
-    tol:f64,
     b_f:f64, // Benefit of additive parental effort to fecundity
     b_p:f64, // Offspring survival benefit of parental effort
     b_s:f64, // baseline survival rate of parents in winter
@@ -251,7 +264,12 @@ struct Environment {
     mean_faster_effort:f64,
     mean_slower_effort:f64,
     mean_fast_h:f64,
-    mean_slow_h:f64
+    mean_slow_h:f64,
+    mean_f_s_w:f64,
+    mean_f_s_d:f64,
+    f_w:f64,
+    s_w:f64,
+    effort_dif:f64,
 }
 
 // Implementations
@@ -366,23 +384,33 @@ impl Agent {
             }
         }
 
-        dice = rng.gen(); //sigma, POLS regulation loci
+        dice = rng.gen(); //x
         if dice <= mu { //mutates
-            // loc3: f64, between 0. and 1. (sigma)
+            // loc3: f64, between 0. and 1. (lambda)
             // scales the perceived informativeness of partner gathering outcomes.
-            let n = nm::new(self.sigma, mut_size as f64).unwrap(); // generates normal distribution 
+            let n = nm::new(self.x, mut_size as f64).unwrap(); // generates normal distribution 
             let loc_mut = n.sample(&mut rng);
-            if loc_mut < 0.05 {
-                self.sigma = 0.05;
+            self.x = loc_mut;
+        }
+
+        dice = rng.gen(); //var
+        if dice <= mu { //mutates
+            // loc3: f64, between 0. and 1. (lambda)
+            // scales the perceived informativeness of partner gathering outcomes.
+            let n = nm::new(self.var, mut_size as f64).unwrap(); // generates normal distribution 
+            let loc_mut = n.sample(&mut rng);
+            if loc_mut < 0.0 {
+                self.var = 0.0;
             } else {
-                self.sigma = loc_mut;
+                self.gamma = loc_mut;
             }
         }
     }
 
     fn pols_det(&mut self) {
-        let normal = Normal::new(0.0, self.sigma).unwrap();
-        self.q = normal.sample(&mut thread_rng())
+        let normal = Normal::new(self.x, self.var).unwrap();
+        
+        self.q = normal.sample(&mut thread_rng());
     }
 
     fn pol_v(&self) -> f64 {
@@ -417,7 +445,6 @@ impl Agent {
             = self.rho
             + self.nu*sigmoid(self.q)
             + self.gamma*(1.-h)*(sigmoid(self.pi)-sigmoid(self.q)) 
-            // + self.gamma*(1.-h)*(sigmoid(self.pi)) 
             - self.lambda*(sigmoid(u2) - self.u_base);
         return r
     }
@@ -466,44 +493,38 @@ impl Environment {
         self.mean_slower_effort = 0.;
         self.mean_fast_h = 0.;
         self.mean_slow_h = 0.;
-        let mut fast_count = 0.;
-        let mut slow_count = 0.;
+        let mut fast_count: f64 = 0.;
+        let mut slow_count: f64 = 0.;
+        let mut fitness: f64;
+        let mut dif: f64 = 0.;
+        self.mean_f_s_w = 0.;
+        self.mean_f_s_d = 0.;
+        let mut f_count: f64 = 0.;
+        let mut s_count: f64 = 0.;
+        self.effort_dif = 0.;
+        let mut count: f64 = 0.;
 
         for i in 0..self.pop.len(){
             female = i;
             male = self.pop[i].partner.unwrap();
             if male > female { // so that there aren't repeats
-                // let mut gen: f64 = 0.;
-                // dif = 9999.;
                 h1 = self.pop[male].uncertainty(self.sigma0);
                 h2 = self.pop[female].uncertainty(self.sigma0);
                 u1=0.;
                 u2=0.;
-                // old=u1+u2;
-                // negotiations:
-                // while dif > self.tol {
+                
+                // Parental egotiations
                 for _j in 0..100 {
-                    // Observation preference
-                    // gen+=1.;
                     u1 = self.pop[male].r(u2,h1);
                     u2 = self.pop[female].r(u1,h2);
-                    // dif = (u1 + u2)-old;
-                    // old = u1 + u2;
-                    // println!("gen: {}, dif: {}, old: {}, u1: {}, u2: {}", gen, dif, old, u1, u2)
                 }
-                
-                // println!("u1: {}, u2: {}", u1, u2);
-
-                // u1 = (u1.clamp(-x, x)+x)/(x*2.);
-                // u2 = (u2.clamp(-x, x)+x)/(x*2.);
-                
-                // u1 = u1.clamp(0., 10.);
-                // u2 = u2.clamp(0., 10.);
-                // println!("u1: {}, u2: {}", u1, u2);
                 u1 = sigmoid(u1);
                 u2 = sigmoid(u2);
 
+                // Provisioning
                 ben = ((u1.max(0.0) + u2.max(0.0))/2.).powf(0.5);
+
+                // Predation
                 self.pop[male].u = u1;
                 self.pop[female].u = u2;
                 q1 = self.pop[male].q;
@@ -511,35 +532,70 @@ impl Environment {
                 pred = self.predation(u1, u2, q1, q2);
 
                 // Record data
-                if q1 > self.sigma0 {
-                    self.mean_faster_effort += u1;
-                    self.mean_fast_h += h1;
-                    fast_count += 1.;
-                } else if q1 < -self.sigma0 {
-                    self.mean_slower_effort += u1;
-                    self.mean_slow_h += h1;
-                    slow_count += 1.;
+                {
+                    if q1 > self.sigma0 {
+                        self.mean_faster_effort += u1;
+                        self.mean_fast_h += h1;
+                        fast_count += 1.;
+                    } else if q1 < -self.sigma0 {
+                        self.mean_slower_effort += u1;
+                        self.mean_slow_h += h1;
+                        slow_count += 1.;
+                    }
+                    if q2 > self.sigma0 {
+                        self.mean_faster_effort += u2;
+                        self.mean_fast_h += h2;
+                        fast_count += 1.;
+                    } else if q2 < -self.sigma0 {
+                        self.mean_slower_effort += u2;
+                        self.mean_slow_h += h2;
+                        slow_count += 1.;
+                    }
                 }
-                if q2 > self.sigma0 {
-                    self.mean_faster_effort += u2;
-                    self.mean_fast_h += h2;
-                    fast_count += 1.;
-                } else if q2 < -self.sigma0 {
-                    self.mean_slower_effort += u2;
-                    self.mean_slow_h += h2;
-                    slow_count += 1.;
+
+                // Fledging
+                fitness = (ben * (1.-pred) / 2.).max(0.0);
+                self.pop[male].fitness = fitness;
+                self.pop[female].fitness = fitness;
+
+                // Record more data
+                {
+                    if (q1 > 0.) & (q2 < 0.) {
+                        dif += 1.;
+                        self.mean_f_s_w += fitness;
+                        self.mean_f_s_d += u1 / (u1+u2);
+                    }
+                    else if (q1 < 0.) & (q2 > 0.) {
+                        dif += 1.;
+                        self.mean_f_s_w += fitness;
+                        self.mean_f_s_d += u2 / (u1+u2);
+                    } else if (q1 > 0.) & (q2 > 0.) {
+                        f_count += 1.;
+                        self.f_w += fitness;
+                    } else if (q1 < 0.) & (q2 <0.) {
+                        s_count += 1.;
+                        self.s_w += fitness;
+                    }
+                    if u1 > u2 {
+                        self.effort_dif += u1 - u2;
+                        count+=1.;
+                    } else {
+                        self.effort_dif += u2 - u1;
+                        count+=1.;
+                    }
                 }
-                
-                self.pop[male].fitness = (ben * (1.-pred) / 2.).max(0.0);
-                self.pop[female].fitness = (ben * (1.-pred) / 2.).max(0.0);
             }
         }
 
-        
+        self.f_w /= f_count;
+        self.s_w /= s_count;
+        self.mean_f_s_w /= dif;
+        self.mean_f_s_d /= dif;
         self.mean_faster_effort /= fast_count;
         self.mean_slower_effort /= slow_count;
         self.mean_fast_h /= fast_count;
         self.mean_slow_h /= slow_count;
+        self.effort_dif /= count;
     }
     
     fn negotiations_baseline(&mut self, file:&str) {  
@@ -688,7 +744,6 @@ impl Environment {
         let mut selected_male:usize;
         let mut selected_female:usize;
         let blend:f64 = 0.5;
-        let normal = Normal::new(0.0, self.sigma0).unwrap();
         // for each i in dead, replace strategy with that of a living individual (single or paired) biased by their fitness from either environment
 
         // weighted agent indices by fitness (dead or alive)
@@ -725,7 +780,8 @@ impl Environment {
             self.pop[self.dead[i]].nu = blend*self.pop[selected_male].nu + (1.-blend)*self.pop[selected_female].nu ;
             self.pop[self.dead[i]].lambda = blend*self.pop[selected_male].lambda + (1.-blend)*self.pop[selected_female].lambda;
             self.pop[self.dead[i]].gamma = blend*self.pop[selected_male].gamma + (1.-blend)*self.pop[selected_female].gamma;
-            self.pop[self.dead[i]].sigma = blend*self.pop[selected_male].sigma + (1.-blend)*self.pop[selected_female].sigma;
+            self.pop[self.dead[i]].x = blend*self.pop[selected_male].x + (1.-blend)*self.pop[selected_female].x;
+            self.pop[self.dead[i]].var = blend*self.pop[selected_male].var + (1.-blend)*self.pop[selected_female].var;
             self.pop[self.dead[i]].fitness = 0.;
             self.pop[self.dead[i]].pols_det();
 
@@ -745,7 +801,8 @@ impl Environment {
         let mut mean_loc_nu = 0.;
         let mut mean_loc_gamma = 0.;
         let mut mean_loc_lambda = 0.;
-        let mut mean_loc_sigma = 0.;
+        let mut mean_x = 0.;
+        let mut mean_var = 0.;
         // println!("Generation: {}, Mean_fitness: {:.4}, prior_wet: {:.4}, prior_general: {:.4}, prior_dry: {:.4}, prop_obs: {:.4}", 
             // i, env.mean_fitness, env.prop_obs);
         for a in &self.pop {
@@ -756,7 +813,8 @@ impl Environment {
             mean_loc_nu += a.nu;
             mean_loc_lambda += a.lambda;
             mean_loc_gamma += a.gamma;
-            mean_loc_sigma += a.sigma;
+            mean_x += a.x;
+            mean_var += a.var;
         }
         mean_loc_m = mean_loc_m/pop_len;
         mean_loc_c = mean_loc_c/pop_len;
@@ -764,7 +822,9 @@ impl Environment {
         mean_loc_rho = mean_loc_rho/pop_len;
         mean_loc_nu = mean_loc_nu/pop_len;
         mean_loc_lambda = mean_loc_lambda/pop_len;
-        mean_loc_sigma = mean_loc_sigma/pop_len;
+        mean_loc_gamma = mean_loc_gamma/pop_len;
+        mean_x = mean_x/pop_len;
+        mean_var = mean_var/pop_len;
             
         data.push(i);
         data.push(pop_len);
@@ -794,7 +854,13 @@ impl Environment {
         data.push(self.mean_slower_effort);
         data.push(self.mean_fast_h);
         data.push(self.mean_slow_h);
-        data.push(mean_loc_sigma);
+        data.push(self.mean_f_s_w / self.mean_fitness as f64);
+        data.push(self.mean_f_s_d);
+        data.push(self.f_w / self.mean_fitness as f64);
+        data.push(self.s_w / self.mean_fitness as f64);
+        data.push(self.effort_dif);
+        data.push(mean_x);
+        data.push(mean_var);
         return data
     }
 
@@ -840,8 +906,7 @@ fn run(
 
 fn run2(
     generations:i32, 
-    res_path: &String, 
-    gen: Option<&i32>,
+    res_path: &String,
     mut env:Environment) {
 
     /////////////////////////////////////////// Run simulation \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -868,7 +933,7 @@ fn main() -> std::io::Result<()>  {
 /////////////////////////////////////////// Initialise baseline parameters \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
         let generations: i32 = 20000; // number of generations the sim lasts
         let sigma0:f64 = 10.0;
-        let iterations:i32 = 200;
+        let iterations:i32 = 100;
         let pop_size = 1000;
 
         let agent:Agent = Agent {
@@ -885,6 +950,8 @@ fn main() -> std::io::Result<()>  {
             nu: 1., // locus - influence of self POL information on negotiation
             lambda: 0., // locus - influence of prior partner bids on negotiation
             gamma: -0.5, // locus - influence of partner POL information on negotiation
+            x: 0.0, // Mean of POLS
+            var: sigma0, // variance of POLS
         };
         
         let env = Environment {
@@ -892,34 +959,74 @@ fn main() -> std::io::Result<()>  {
             singles: (0..pop_size as usize).collect(),
             dead: Vec::new(),
             mean_fitness:0.,
-            tol: 0.001,
             mu:0.2, // mutation rate of loci
             mut_size:0.2,
 
             b_f:1.0, // Baseline fecundity (offspring independence)
             b_s:0.95, // Baseline survival rate of adults (5 years lifespan)
-            b_p:0.5, // Brood predation risk (assuming twice the mortality of adults)
+            b_p:0.9, // Brood predation risk (assuming twice the mortality of adults)
             c_q:0.25, // survival cost of fast POL in winter 
             c_v:0.1, // surival cost of making observations in winter
             c_u:0.25, // survival cost of parental effort in winter (highest energy expenditure)
             sigma0, // Locus determining prior alpha
-            sigma_cue:4.0, // sd of the cue
+            sigma_cue:1.0, // sd of the cue
             varsigma:10, // the maximum sample size an individual is able to gather from cues
-            h:2.5, // slow-fast slope of nest-defence/size/aggression (behavioural phenotypes more extreme therefore h>theta)
+            h:5., // slow-fast slope of nest-defence/size/aggression (behavioural phenotypes more extreme therefore h>theta)
             theta: 2.0, // slow-fast sigmoid slope of mortality risk against q-value (physiological
             div_rate:1.0, // divorce rate
             mean_faster_effort:0.,
             mean_slower_effort:0.,
             mean_fast_h:0.,
             mean_slow_h:0.,
+            mean_f_s_d:0.,
+            mean_f_s_w:0.,
+            f_w:0.,
+            s_w:0.,
+            effort_dif:0.,
         };
 
 ////////////////////////////////////////////////////// start r session
     let mut r = RSession::new()?;
     r.exec("source('src/b_s.r')")?;
     let r_mutex = Mutex::new(r);
+    
+////////////////////////////////////////////////////// Brood predation risk (b_p) sims
+    // Construct the full path
+        let path = format!("./Results/{}/b_p/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
+        env.b_p = x;
+        
+        println!("Simulation started: predation risk: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: predation risk: {}, trial: {}", x, g);
 
-////////////////////////////////////////////////////// Cue detectability (cue_sigma) sims
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
+
+    ////////////////////////////////////////////////////// Cue detectability (cue_sigma) sims
     // Construct the full path
     let path = format!("./Results/{}/sigma_cue/", project_id);
     let path_construct = Path::new(&path);
@@ -955,81 +1062,8 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
 
-////////////////////////////////////////////////////// Cost of Fast POLS c_q
-    // Construct the full path
-        let path = format!("./Results/{}/c_q/", project_id);
-        let path_construct = Path::new(&path);
-        // Ensure parent directory exists
-        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-        let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
-        env.c_q = x;
-        
-        println!("Simulation started: c_q: {}, trial: {}", x, g);
-        run(
-            generations, 
-            &path, 
-            Some(&(x.to_string())), 
-            Some(&g),
-            env
-        );
-        println!("Simulation done: c_q: {}, trial: {}", x, g);
 
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_c_q_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_c_q_plot('{}')", path)).unwrap();
-////////////////////////////////////////////////////// Pace-of-life variance (sigma) sims
-        // Construct the full path
-        let path = format!("./Results/{}/sigma/", project_id);
-        let path_construct = Path::new(&path);
-        // Ensure parent directory exists
-        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-        let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.01..10.0); // uniform sample from parameter space
-        env.sigma0 = x;
-        
-        println!("Simulation started: sigma: {}, trial: {}", x, g);
-        run(
-            generations, 
-            &path, 
-            Some(&(x.to_string())), 
-            Some(&g),
-            env
-        );
-        println!("Simulation done: sigma: {}, trial: {}", x, g);
-
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_sigma_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_sigma_plot('{}')", path)).unwrap();
-    
-
-
-
-//////////////////////////////////////////////////////theta
+////////////////////////////////////////////////////// theta
         // Construct the full path
         let path = format!("./Results/{}/theta/", project_id);
         let path_construct = Path::new(&path);
@@ -1101,112 +1135,6 @@ fn main() -> std::io::Result<()>  {
     let mut r = RSession::new()?;
     r.exec(&format!("run_h_plot('{}')", path)).unwrap();
 
-
-    
-
-////////////////////////////////////////////////////// Baseline high
-    // Construct the full path
-        let path = format!("./Results/{}/Baseline_high/", project_id);
-        let path_construct = Path::new(&path);
-        // Ensure parent directory exists
-        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-        let _ = write_csv_header3(&path);
-    (0..50).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        env.b_p=1.;
-        
-        println!("Simulation started: gen: {}", g);
-        run2(
-            generations, 
-            &path,  
-            Some(&g),
-            env
-        );
-        println!("Simulation done: gen: {}", g);
-
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_Baseline_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_Baseline_plot('{}')", path)).unwrap();
-
-////////////////////////////////////////////////////// Baseline low
-    // Construct the full path
-        let path = format!("./Results/{}/Baseline_low/", project_id);
-        let path_construct = Path::new(&path);
-        // Ensure parent directory exists
-        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-        let _ = write_csv_header3(&path);
-    (0..50).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        env.b_p=0.;
-        
-        println!("Simulation started: gen: {}", g);
-        run2(
-            generations, 
-            &path,  
-            Some(&g),
-            env
-        );
-        println!("Simulation done: gen: {}", g);
-
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_Baseline_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_Baseline_plot('{}')", path)).unwrap();
-
-////////////////////////////////////////////////////// Brood predation risk (b_p) sims
-    // Construct the full path
-        let path = format!("./Results/{}/b_p/", project_id);
-        let path_construct = Path::new(&path);
-        // Ensure parent directory exists
-        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
-        let _ = write_csv_header(&path);
-    (0..iterations).into_par_iter().for_each(|g|  {
-        // Initialise stochastic variables
-        let mut rng = rand::thread_rng();
-        let mut env = env.clone();
-        let mut agent = agent.clone();
-        agent.mutate(1.0, 1.0); // randomize resident loci
-        env.pop = init_pop(pop_size, agent, sigma0);
-        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
-        env.b_p = x;
-        
-        println!("Simulation started: predation risk: {}, trial: {}", x, g);
-        run(
-            generations, 
-            &path, 
-            Some(&(x.to_string())), 
-            Some(&g),
-            env
-        );
-        println!("Simulation done: predation risk: {}, trial: {}", x, g);
-
-        // ensure only one thread runs r at a time (plotting):
-        if g % 10 == 0 {
-            let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
-        }
-    });
-    let mut r = RSession::new()?;
-    r.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
 
 
 
@@ -1281,6 +1209,143 @@ fn main() -> std::io::Result<()>  {
     });
     let mut r = RSession::new()?;
     r.exec(&format!("run_b_s_plot('{}')", path)).unwrap();
+////////////////////////////////////////////////////// Baseline high
+    // Construct the full path
+        let path = format!("./Results/{}/Baseline_high/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header3(&path);
+    (0..50).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        env.b_p=1.;
+        
+        println!("Simulation started: gen: {}", g);
+        run2(
+            generations, 
+            &path,  
+            env
+        );
+        println!("Simulation done: gen: {}", g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_BaselineH_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_BaselineH_plot('{}')", path)).unwrap();
+
+////////////////////////////////////////////////////// Baseline low
+    // Construct the full path
+        let path = format!("./Results/{}/Baseline_low/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header3(&path);
+    (0..50).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        env.b_p=0.;
+        
+        println!("Simulation started: gen: {}", g);
+        run2(
+            generations, 
+            &path,  
+            env
+        );
+        println!("Simulation done: gen: {}", g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_BaselineL_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_BaselineL_plot('{}')", path)).unwrap();
+
+////////////////////////////////////////////////////// Cost of Fast POLS c_q
+    // Construct the full path
+        let path = format!("./Results/{}/c_q/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
+        env.c_q = x;
+        
+        println!("Simulation started: c_q: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: c_q: {}, trial: {}", x, g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_c_q_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_c_q_plot('{}')", path)).unwrap();
+////////////////////////////////////////////////////// Pace-of-life variance (sigma) sims
+        // Construct the full path
+        let path = format!("./Results/{}/sigma/", project_id);
+        let path_construct = Path::new(&path);
+        // Ensure parent directory exists
+        let _ = fs::create_dir_all(path_construct); // Create directory path if it doesn't exist
+        let _ = write_csv_header(&path);
+    (0..iterations).into_par_iter().for_each(|g|  {
+        // Initialise stochastic variables
+        let mut rng = rand::thread_rng();
+        let mut env = env.clone();
+        let mut agent = agent.clone();
+        agent.mutate(1.0, 1.0); // randomize resident loci
+        env.pop = init_pop(pop_size, agent, sigma0);
+        let x = rng.gen_range(0.01..10.0); // uniform sample from parameter space
+        env.sigma0 = x;
+        
+        println!("Simulation started: sigma: {}, trial: {}", x, g);
+        run(
+            generations, 
+            &path, 
+            Some(&(x.to_string())), 
+            Some(&g),
+            env
+        );
+        println!("Simulation done: sigma: {}, trial: {}", x, g);
+
+        // ensure only one thread runs r at a time (plotting):
+        if g % 10 == 0 {
+            let mut r_guard = r_mutex.lock().unwrap(); 
+            r_guard.exec(&format!("run_sigma_plot('{}')", path)).unwrap();
+        }
+    });
+    let mut r = RSession::new()?;
+    r.exec(&format!("run_sigma_plot('{}')", path)).unwrap();
+    
 
 Ok(())
 }
