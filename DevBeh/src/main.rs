@@ -980,8 +980,6 @@ fn main() -> std::io::Result<()>  {
             c_q:0.4, // survival cost of fast POL in winter 
             c_v:0.1, // surival cost of making observations in winter
             c_psi:0.0, // opportunity cost of making observations on provisioning
-            c_v:0.1, // surival cost of making observations in winter
-            c_psi:0.0, // opportunity cost of making observations on provisioning
             c_u:0.25, // survival cost of parental effort in winter (highest energy expenditure)
             sigma0, // Locus determining prior alpha
             sigma_cue:0.5, // sd of the cue
@@ -1026,8 +1024,7 @@ fn main() -> std::io::Result<()>  {
         env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0001..5.0); // uniform sample from parameter space
         env.sigma_cue = x;
-        
-        println!("Simulation started: sigmacue: {}, trial: {}", x, g);
+
         println!("Simulation started: sigmacue: {}, trial: {}", x, g);
         run(
             generations, 
@@ -1037,18 +1034,14 @@ fn main() -> std::io::Result<()>  {
             env
         );
         println!("Simulation done: sigmacue: {}, trial: {}", x, g);
-        println!("Simulation done: sigmacue: {}, trial: {}", x, g);
 
         // ensure only one thread runs r at a time (plotting):
         if g % 5 == 0 {
-        if g % 5 == 0 {
             let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
             r_guard.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
         }
     });
     let mut r = RSession::new()?;
-    r.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
     r.exec(&format!("run_sigmacue_plot('{}')", path)).unwrap();
 
 ////////////////////////////// Brood predation risk (b_p) sims
@@ -1073,10 +1066,7 @@ fn main() -> std::io::Result<()>  {
         env.pop = init_pop(pop_size, agent, sigma0);
         let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
         env.b_p = x;
-        let x = rng.gen_range(0.0..1.0); // uniform sample from parameter space
-        env.b_p = x;
         
-        println!("Simulation started: predation risk: {}, trial: {}", x, g);
         println!("Simulation started: predation risk: {}, trial: {}", x, g);
         run(
             generations, 
@@ -1086,13 +1076,10 @@ fn main() -> std::io::Result<()>  {
             env
         );
         println!("Simulation done: predation risk: {}, trial: {}", x, g);
-        println!("Simulation done: predation risk: {}, trial: {}", x, g);
 
         // ensure only one thread runs r at a time (plotting):
         if g % 10 == 0 {
-        if g % 10 == 0 {
             let mut r_guard = r_mutex.lock().unwrap(); 
-            r_guard.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
             r_guard.exec(&format!("run_b_p_plot('{}')", path)).unwrap();
         }
     });
