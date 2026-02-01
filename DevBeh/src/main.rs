@@ -83,6 +83,8 @@ fn write_csv_header(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "nu",
         "gamma",
         "lambda",
+        "loc_mu",
+        "loc_sig",
         "mean_faster_effort",
         "mean_slower_effort",
         "mean_fast_h",
@@ -138,6 +140,8 @@ fn write_csv_header2(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         "nu",
         "gamma",
         "lambda",
+        "loc_mu",
+        "loc_sig",
         "mean_faster_effort",
         "mean_slower_effort",
         "mean_fast_h",
@@ -243,6 +247,8 @@ struct Agent {
     nu: f64, // locus - influence of self POL information on negotiation
     lambda:f64, // locus - influence of prior partner bids on negotiation
     gamma:f64, // locus - influence of partner POL information on negotiation
+    mu:f64, // Locus prior mu
+    sig:f64, // locus prior sigma
 }
 #[derive(Clone, Debug)]
 struct Environment {
@@ -402,6 +408,34 @@ impl Agent {
                 self.gamma = loc_mut;
             }
         }
+        
+        dice = rng.gen(); //prior mu
+        if dice <= mu { //mutates
+            // loc3: f64, between 0. and 1. (mu)
+            // scales the perceived informativeness of partner gathering outcomes.
+            let n = nm::new(self.mu, mut_size as f64).unwrap(); // generates normal distribution 
+            let loc_mut = n.sample(&mut rng);
+            if loc_mut < -1.0 {
+                self.mu = -1.0;
+            } else if loc_mut > 1.0 {
+                self.mu = 1.0;
+            } else {
+                self.mu = loc_mut;
+            }
+        }
+        
+        dice = rng.gen(); //prior sigma
+        if dice <= mu { //mutates
+            // loc3: f64, between 0. and 1. (sig)
+            // scales the perceived informativeness of partner gathering outcomes.
+            let n = nm::new(self.sig, mut_size as f64).unwrap(); // generates normal distribution 
+            let loc_mut = n.sample(&mut rng);
+            if loc_mut < 0.01 {
+                self.sig = 0.01;
+            } else {
+                self.sig = loc_mut;
+            }
+        }
     }
 
     fn pol_v(&self) -> f64 {
@@ -425,7 +459,7 @@ impl Agent {
     fn uncertainty(&self, sigma0:f64) -> f64 {
         // let hx = 0.5  * (2.0 * std::f64::consts::PI * std::f64::consts::E * self.sigma * self.sigma).log2();
         // return hx / (0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * sigma0*sigma0).log2())
-        return self.sigma / sigma0
+        return self.sigma / self.sig
     }
 
     fn r(&self, u2:f64, h:f64) -> f64 {
@@ -721,12 +755,12 @@ impl Environment {
         for chunk in available.chunks(2) {
             if let [a, b] = chunk {
                 // initialize states
-                self.pop[*a].sigma = self.sigma0;
-                self.pop[*a].pi = 0.0;
+                self.pop[*a].sigma = self.pop[*a].sig;
+                self.pop[*a].pi = self.pop[*a].mu;
                 self.pop[*a].partner = Some(*b);
 
-                self.pop[*b].sigma = self.sigma0;
-                self.pop[*b].pi = 0.0;
+                self.pop[*b].sigma = self.pop[*b].sig;
+                self.pop[*b].pi = self.pop[*b].mu;
                 self.pop[*b].partner = Some(*a);
             }
         }
@@ -773,6 +807,8 @@ impl Environment {
             self.pop[self.dead[i]].nu = self.pop[parent].nu;
             self.pop[self.dead[i]].lambda = self.pop[parent].lambda;
             self.pop[self.dead[i]].gamma = self.pop[parent].gamma;
+            self.pop[self.dead[i]].sig = self.pop[parent].sig;
+            self.pop[self.dead[i]].mu = self.pop[parent].mu;
             self.pop[self.dead[i]].fitness = 0.;
             self.pop[self.dead[i]].q = normal.sample(&mut thread_rng());
 
@@ -793,6 +829,8 @@ impl Environment {
         let mut mean_loc_nu: f64 = 0.;
         let mut mean_loc_gamma: f64 = 0.;
         let mut mean_loc_lambda: f64 = 0.;
+        let mut mean_loc_mu: f64 = 0.;
+        let mut mean_loc_sig: f64 = 0.;
         let mut mean_fast_obs:f64 = 0.;
         let mut mean_slow_obs:f64 = 0.;
         let mut fast_count: f64 = 0.;
@@ -808,6 +846,8 @@ impl Environment {
             mean_loc_nu += a.nu;
             mean_loc_lambda += a.lambda;
             mean_loc_gamma += a.gamma;
+            mean_loc_mu += a.mu;
+            mean_loc_sig += a.sig;
             if a.q > 0. {
                 mean_fast_obs += a.pol_v();
                 fast_count += 1.;
@@ -824,6 +864,8 @@ impl Environment {
         mean_loc_nu = mean_loc_nu/pop_len;
         mean_loc_lambda = mean_loc_lambda/pop_len;
         mean_loc_gamma = mean_loc_gamma/pop_len;
+        mean_loc_sig = mean_loc_sig/pop_len;
+        mean_loc_mu = mean_loc_mu/pop_len;
         mean_fast_obs = mean_fast_obs/fast_count;
         mean_slow_obs = mean_slow_obs/slow_count;
             
@@ -853,6 +895,8 @@ impl Environment {
         data.push(mean_loc_nu);
         data.push(mean_loc_gamma);
         data.push(mean_loc_lambda);
+        data.push(mean_loc_mu);
+        data.push(mean_loc_sig);
         data.push(self.mean_faster_effort);
         data.push(self.mean_slower_effort);
         data.push(self.mean_fast_h);
@@ -954,6 +998,8 @@ fn main() -> std::io::Result<()>  {
             nu: 1., // locus - influence of self POL information on negotiation
             lambda: 0., // locus - influence of prior partner bids on negotiation
             gamma: -0.5, // locus - influence of partner POL information on negotiation
+            mu: 0., //prior
+            sig: sigma0, //prior
         };
         
         let env = Environment {
@@ -977,7 +1023,7 @@ fn main() -> std::io::Result<()>  {
             varsigma:20, // the maximum sample size an individual is able to gather from cues
             h:1., // slow-fast slope of nest-defence/size/aggression (behavioural phenotypes more extreme therefore h>theta)
             theta: 0.5, // slow-fast sigmoid slope of mortality risk against q-value (physiological
-            div_rate:0.1, // divorce rate
+            div_rate:1.0, // divorce rate
             mean_faster_effort:0.,
             mean_slower_effort:0.,
             mean_fast_h:0.,

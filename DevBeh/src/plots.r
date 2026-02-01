@@ -214,6 +214,16 @@ run_trait_plot <- function(
       Responsiveness  = lambda,
     ) %>%
     select(!!x_sym, lambda)
+  df_loci2 <- readfile %>%
+    mutate(
+      Sigma = loc_sig
+    ) %>%
+    select(!!x_sym, Sigma)
+  df_loci3 <- readfile %>%
+    mutate(
+      mu = loc_mu
+    ) %>%
+    select(!!x_sym, mu)
   
   # Create combined dataframe for legend with all loci
   df_legend <- bind_rows(
@@ -317,8 +327,19 @@ run_trait_plot <- function(
   dev.off()
 
   pdf(paste0(path, "../", out_name, "response.pdf"), width = 8, height = 6)
-  plot(df_loci, ylim=c(-1,1), xlab=x_label, ylab=bquote("Responsiveness "(lambda)))
+  plot(df_loci, ylim = c(-2,10), xlab=x_label, ylab="Loci values")
+  points(df_loci2, pch=4)
+  points(df_loci3, pch=3)
   lines(lowess(df_loci), lwd = 2)
+  lines(lowess(df_loci2), lwd = 2)
+  lines(lowess(df_loci3), lwd = 2)
+  legend("topright", 
+       legend = c("Responsiveness", "Prior uncertainty", "Prior mu"),
+       col = c("black", "black", "black"),
+       pch = c(1, 4, 3),
+       lty = 1,
+       lwd = 2,
+       pt.cex = 1)
   dev.off()
 
   file.copy(
